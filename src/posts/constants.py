@@ -1,0 +1,4 @@
+# Constants for Posts module
+MAX_TITLE_LENGTH = 100
+MAX_CONTENT_LENGTH = 5000
+DEFAULT_PAGE_SIZE = 10
