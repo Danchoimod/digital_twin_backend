@@ -1,19 +1,24 @@
-from sqlalchemy.orm import Session
-from src.auth.models import User
 from src.auth.schemas import UserCreate
 from src.auth.utils import hash_password
 
 
 class AuthService:
     @staticmethod
-    def get_user_by_email(db: Session, email: str):
-        return db.query(User).filter(User.email == email).first()
+    async def get_user_by_email(db, email: str):
+        user = await db["users"].find_one({"email": email})
+        if user:
+            user["id"] = str(user["_id"])
+        return user
 
     @staticmethod
-    def create_user(db: Session, user_in: UserCreate):
+    async def create_user(db, user_in: UserCreate):
         hashed = hash_password(user_in.password)
-        db_user = User(email=user_in.email, hashed_password=hashed)
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        return db_user
+        user_doc = {
+            "email": user_in.email,
+            "hashed_password": hashed,
+            "is_active": True
+        }
+        result = await db["users"].insert_one(user_doc)
+        user_doc["id"] = str(result.inserted_id)
+        user_doc["_id"] = result.inserted_id
+        return user_doc

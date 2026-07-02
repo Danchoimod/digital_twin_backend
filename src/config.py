@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
     
     # Database Settings
-    DATABASE_URL: str = "sqlite:///./sql_app.db"
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "twin_db"
     
     # GCP Settings
     GCP_PROJECT_ID: Optional[str] = None

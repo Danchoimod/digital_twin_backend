@@ -1,22 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 import os
+import pymongo.errors
 
 from src.config import settings
-from src.database import engine, Base
 # Import routers
 from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
-
-# Create Database tables (simple startup check, prefer Alembic for production)
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception:
-    pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -24,6 +18,21 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.exception_handler(pymongo.errors.PyMongoError)
+async def pymongo_exception_handler(request: Request, exc: pymongo.errors.PyMongoError):
+    error_msg = str(exc)
+    hint = "Please configure your actual database credentials (e.g. replacing '<db_password>') in your .env file."
+    if "bad auth" in error_msg.lower() or "authentication failed" in error_msg.lower():
+         return JSONResponse(
+             status_code=503,
+             content={"detail": "Database authentication failed.", "hint": hint, "error": error_msg}
+         )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Database connection or execution failed.", "error": error_msg}
+    )
 
 # CORS middleware configuration
 app.add_middleware(

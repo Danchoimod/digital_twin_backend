@@ -18,4 +18,4 @@ COPY . .
 
 # Run the web service on container startup.
 # Cloud Run sets the PORT environment variable automatically.
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port $PORT
+CMD exec uvicorn src.main:app --host 0.0.0.0 --port $PORT

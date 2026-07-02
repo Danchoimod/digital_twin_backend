@@ -1,26 +1,13 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-
+from motor.motor_asyncio import AsyncIOMotorClient
 from src.config import settings
 
-# For SQLite, we need to allow multithreaded access
-connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
-
-engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
+# Create database client
+client = AsyncIOMotorClient(settings.MONGODB_URL)
+db = client[settings.MONGODB_DB_NAME]
 
 
-def get_db():
+async def get_db():
     """
-    Database session dependency.
-    Yields a database session and closes it when done.
+    Database dependency yielding the MongoDB database instance.
     """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    yield db
