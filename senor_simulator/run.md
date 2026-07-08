@@ -1,0 +1,2 @@
+python mqtt_pubsub_bridge.py
+python device_simulator.py

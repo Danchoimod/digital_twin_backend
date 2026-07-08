@@ -1,7 +1,7 @@
 [Thiết bị IoT] 
       │ (Gửi dữ liệu thô liên tục)
       ▼
-[Tổng kho đệm: Kafka / Kinesis] (Hứng tải, xếp hàng dữ liệu)
+[Tổng kho đệm: Pub sub] (Hứng tải, xếp hàng dữ liệu)
       │
       ▼
 [Băng chuyền: Spark / Flink] (Lọc rác, xử lý, tính toán ngầm)

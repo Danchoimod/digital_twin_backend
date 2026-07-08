@@ -13,12 +13,22 @@ class GCPClient:
         self.project_id = config.PROJECT_ID
         self.credentials = None
 
-        if config.CREDENTIALS_PATH and os.path.exists(config.CREDENTIALS_PATH):
+        # Resolve relative path if provided
+        cred_path = config.CREDENTIALS_PATH
+        if cred_path and not os.path.isabs(cred_path):
+            # Resolve relative to the project root directory (one level above 'src')
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            project_root = os.path.dirname(src_dir)
+            resolved_path = os.path.normpath(os.path.join(project_root, cred_path))
+            if os.path.exists(resolved_path):
+                cred_path = resolved_path
+
+        if cred_path and os.path.exists(cred_path):
             try:
                 self.credentials = service_account.Credentials.from_service_account_file(
-                    config.CREDENTIALS_PATH
+                    cred_path
                 )
-                logger.info("Successfully loaded GCP credentials from path")
+                logger.info(f"Successfully loaded GCP credentials from: {cred_path}")
             except Exception as e:
                 logger.error(f"Error loading credentials file: {e}")
 
