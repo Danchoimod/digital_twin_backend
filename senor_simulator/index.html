@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Giả lập cảm biến</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+  <div class="max-w-7xl mx-auto p-4 md:p-6">
+    <header class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Giả lập cảm biến</h1>
+        <p class="text-gray-400 text-sm mt-1">Quản lý trạm & cảm biến, mô phỏng dữ liệu gửi lên MQTT</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="mqttBadge" class="px-3 py-1 rounded-full text-xs font-medium bg-gray-800 text-gray-500">MQTT: ...</span>
+        <button id="startAllBtn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition">Start All</button>
+        <button id="stopAllBtn" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition">Stop All</button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div class="xl:col-span-1 space-y-4">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">Thêm trạm</h2>
+          <div class="space-y-2">
+            <input id="stationNameInput" placeholder="Tên trạm..." class="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:border-emerald-500 outline-none">
+            <div class="flex gap-2">
+              <input id="deviceIdInput" placeholder="device_id (để trống = ID tự sinh)" class="flex-1 bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:border-emerald-500 outline-none">
+              <input id="tokenInput" placeholder="token" class="flex-1 bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:border-emerald-500 outline-none">
+            </div>
+            <button id="addStationBtn" class="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium">Thêm</button>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">Danh sách trạm</h2>
+          <div id="stationList" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="xl:col-span-2 space-y-4">
+        <div id="stationDetail" class="bg-gray-900 rounded-xl p-4 border border-gray-800 min-h-[300px]">
+          <div class="flex items-center justify-center h-full text-gray-500">
+            <p>Chọn một trạm để cấu hình</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="xl:col-span-1 space-y-4">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400">Nhật ký</h2>
+            <button id="clearLogBtn" class="text-xs text-gray-500 hover:text-gray-300">Xoá</button>
+          </div>
+          <div id="logContainer" class="h-[500px] overflow-y-auto space-y-1 text-xs font-mono"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+    let selectedStationId = null;
+
+    const $ = id => document.getElementById(id);
+    const logContainer = $('logContainer');
+
+    function log(msg, type = 'info') {
+      const colors = { info: 'text-gray-400', sent: 'text-emerald-400', error: 'text-red-400', warn: 'text-yellow-400' };
+      const el = document.createElement('div');
+      el.className = colors[type] || colors.info;
+      el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logContainer.appendChild(el);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    async function api(method, url, body) {
+      try {
+        const opts = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(`${API}${url}`, opts);
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return await res.json();
+      } catch (e) {
+        log(`API error: ${url} — ${e.message}`, 'error');
+        throw e;
+      }
+    }
+
+    async function loadStations() {
+      return await api('GET', '/api/stations');
+    }
+
+    async function render() {
+      const stations = await loadStations();
+      renderStationList(stations);
+      if (selectedStationId) {
+        const st = stations.find(s => s.id === selectedStationId);
+        if (st) renderStationDetail(st);
+        else { selectedStationId = null; renderStationDetail(null); }
+      }
+    }
+
+    function renderStationList(stations) {
+      const el = $('stationList');
+      el.innerHTML = '';
+      if (!stations.length) {
+        el.innerHTML = '<p class="text-gray-600 text-sm text-center py-4">Chưa có trạm nào</p>';
+        return;
+      }
+      stations.forEach(st => {
+        const running = st.sensors?.some(s => s.running);
+        const div = document.createElement('div');
+        div.className = `flex items-center justify-between p-3 rounded-lg cursor-pointer border transition ${
+          selectedStationId === st.id ? 'bg-gray-800 border-emerald-600' : 'bg-gray-800/50 border-gray-700 hover:border-gray-500'
+        }`;
+        div.innerHTML = `
+          <div class="flex-1 min-w-0" onclick="selectStation('${st.id}')">
+            <div class="text-sm font-medium truncate">${st.name}</div>
+            <div class="text-xs text-gray-500">${st.sensors?.length || 0} cảm biến ${running ? '· <span class="text-emerald-400">Đang chạy</span>' : ''}</div>
+          </div>
+          <div class="flex items-center gap-1 ml-2">
+            <button onclick="event.stopPropagation();deleteStation('${st.id}')" class="p-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-red-400 text-sm">✕</button>
+          </div>
+        `;
+        el.appendChild(div);
+      });
+    }
+
+    window.selectStation = async function(id) {
+      selectedStationId = id;
+      const stations = await loadStations();
+      const st = stations.find(s => s.id === id);
+      renderStationDetail(st);
+      renderStationList(stations);
+    };
+
+    async function deleteStation(id) {
+      await api('DELETE', `/api/stations/${id}`);
+      selectedStationId = null;
+      log('Đã xoá trạm', 'info');
+      render();
+    }
+
+    function renderStationDetail(st) {
+      const el = $('stationDetail');
+      if (!st) {
+        el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><p>Chọn một trạm để cấu hình</p></div>';
+        return;
+      }
+
+      const running = st.sensors?.some(s => s.running);
+
+      el.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-lg font-bold">${st.name}</h3>
+            <p class="text-xs text-gray-500">ID: ${st.id}</p>
+            <p class="text-xs text-gray-400 ${st.device_id ? '' : 'hidden'}">device_id: <span class="text-emerald-400">${st.device_id || ''}</span> | token: <span class="text-yellow-400">${st.token || ''}</span></p>
+          </div>
+        </div>
+
+        <div class="bg-gray-800/50 rounded-lg p-3 mb-4 border border-gray-700">
+          <div class="flex gap-2 items-end">
+            <div class="flex-1">
+              <label class="text-xs text-gray-500">Tên cảm biến</label>
+              <input id="sensorNameInput" placeholder="VD: Cảm biến pH" class="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:border-emerald-500 outline-none">
+            </div>
+            <div class="flex-1">
+              <label class="text-xs text-gray-500">Loại (type)</label>
+              <input id="sensorTypeInput" placeholder="VD: water_quality" class="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:border-emerald-500 outline-none">
+            </div>
+            <button onclick="addSensor('${st.id}')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium">Thêm</button>
+          </div>
+        </div>
+
+        <div class="space-y-3" id="sensorList">
+          ${st.sensors?.length ? '' : '<p class="text-gray-600 text-sm text-center py-4">Chưa có cảm biến nào</p>'}
+        </div>
+      `;
+
+      const listEl = el.querySelector('#sensorList');
+      (st.sensors || []).forEach(se => {
+        const div = document.createElement('div');
+        div.className = 'bg-gray-800/30 rounded-lg p-3 border border-gray-700';
+        div.innerHTML = `
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <span class="text-sm font-medium">${se.name}</span>
+              <span class="text-xs text-gray-500 ml-2">${se.type}</span>
+            </div>
+            <div class="flex gap-1">
+              ${se.running
+                ? `<button onclick="toggleSim('${st.id}','${se.id}','stop')" class="p-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-red-400 text-sm">⏹</button>`
+                : `<button onclick="toggleSim('${st.id}','${se.id}','start')" class="p-1.5 bg-emerald-600/20 hover:bg-emerald-600/40 rounded text-emerald-400 text-sm">▶</button>`
+              }
+              <button onclick="deleteSensor('${st.id}','${se.id}')" class="p-1.5 bg-red-600/20 hover:bg-red-600/40 rounded text-red-400 text-sm">✕</button>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <div class="text-xs text-gray-500 mb-1">Chỉ số (metrics):</div>
+            <div id="metrics_${se.id}" class="space-y-1">
+              ${(se.metrics || []).map(m => `
+                <div class="flex items-center justify-between bg-gray-800/50 rounded px-2 py-1 text-xs">
+                  <span class="text-gray-300">${m.name}</span>
+                  <span class="text-gray-500">${m.min} → ${m.max}</span>
+                  <button onclick="removeMetric('${st.id}','${se.id}','${m.id}')" class="text-red-400 hover:text-red-300 ml-1">✕</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="flex gap-1 items-center flex-wrap">
+            <input id="metName_${se.id}" placeholder="Tên" class="w-20 bg-gray-800 rounded px-2 py-1 text-xs border border-gray-700 focus:border-emerald-500 outline-none">
+            <input id="metMin_${se.id}" type="number" placeholder="Min" value="0" class="w-16 bg-gray-800 rounded px-2 py-1 text-xs border border-gray-700 focus:border-emerald-500 outline-none">
+            <input id="metMax_${se.id}" type="number" placeholder="Max" value="100" class="w-16 bg-gray-800 rounded px-2 py-1 text-xs border border-gray-700 focus:border-emerald-500 outline-none">
+            <input id="metDec_${se.id}" type="number" placeholder="Số" value="1" min="0" max="10" class="w-12 bg-gray-800 rounded px-2 py-1 text-xs border border-gray-700 focus:border-emerald-500 outline-none">
+            <button onclick="addMetric('${st.id}','${se.id}')" class="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 rounded text-xs text-emerald-400">+</button>
+          </div>
+        `;
+        listEl.appendChild(div);
+      });
+    }
+
+    window.selectStation = async function(id) {
+      selectedStationId = id;
+      const stations = await loadStations();
+      const st = stations.find(s => s.id === id);
+      renderStationDetail(st);
+      const all = await loadStations();
+      renderStationList(all);
+    };
+
+    window.addSensor = async function(stationId) {
+      const name = document.getElementById('sensorNameInput').value;
+      const type = document.getElementById('sensorTypeInput').value;
+      if (!name) return;
+      await api('POST', `/api/stations/${stationId}/sensors`, { name, type });
+      document.getElementById('sensorNameInput').value = '';
+      document.getElementById('sensorTypeInput').value = '';
+      log(`Đã thêm cảm biến "${name}"`, 'info');
+      render();
+    };
+
+    window.deleteSensor = async function(stationId, sensorId) {
+      await api('DELETE', `/api/stations/${stationId}/sensors/${sensorId}`);
+      log('Đã xoá cảm biến', 'info');
+      render();
+    };
+
+    window.toggleSim = async function(stationId, sensorId, action) {
+      await api('POST', `/api/stations/${stationId}/sensors/${sensorId}/simulation`, { action });
+      log(action === 'start' ? 'Đã bắt đầu giả lập' : 'Đã dừng giả lập', action === 'start' ? 'sent' : 'warn');
+      render();
+    };
+
+    window.addMetric = async function(stationId, sensorId) {
+      const name = document.getElementById(`metName_${sensorId}`).value;
+      if (!name) return;
+      const min = document.getElementById(`metMin_${sensorId}`).value;
+      const max = document.getElementById(`metMax_${sensorId}`).value;
+      const decimals = document.getElementById(`metDec_${sensorId}`).value;
+      const stations = await loadStations();
+      const st = stations.find(s => s.id === stationId);
+      if (!st) return;
+      const se = st.sensors.find(s => s.id === sensorId);
+      if (!se) return;
+      se.metrics.push({ id: crypto.randomUUID(), name, min: parseFloat(min) || 0, max: parseFloat(max) || 100, decimals: parseInt(decimals) || 1 });
+      // Delete and recreate sensor with new metrics
+      await api('DELETE', `/api/stations/${stationId}/sensors/${sensorId}`);
+      await api('POST', `/api/stations/${stationId}/sensors`, { name: se.name, type: se.type, metrics: se.metrics });
+      document.getElementById(`metName_${sensorId}`).value = '';
+      render();
+    };
+
+    window.removeMetric = async function(stationId, sensorId, metricId) {
+      const stations = await loadStations();
+      const st = stations.find(s => s.id === stationId);
+      if (!st) return;
+      const se = st.sensors.find(s => s.id === sensorId);
+      if (!se) return;
+      se.metrics = se.metrics.filter(m => m.id !== metricId);
+      await api('DELETE', `/api/stations/${stationId}/sensors/${sensorId}`);
+      await api('POST', `/api/stations/${stationId}/sensors`, { name: se.name, type: se.type, metrics: se.metrics });
+      render();
+    };
+
+    // ─── Event bindings ────────────────────────────────
+
+    $('addStationBtn').addEventListener('click', async () => {
+      const name = $('stationNameInput').value;
+      if (!name) return;
+      const device_id = $('deviceIdInput').value;
+      const token = $('tokenInput').value;
+      await api('POST', '/api/stations', { name, device_id, token });
+      $('stationNameInput').value = '';
+      $('deviceIdInput').value = '';
+      $('tokenInput').value = '';
+      log(`Đã thêm trạm "${name}"`, 'info');
+      render();
+    });
+
+    $('stationNameInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') $('addStationBtn').click();
+    });
+
+    $('startAllBtn').addEventListener('click', async () => {
+      await api('POST', '/api/simulation/start_all');
+      log('Đã bật tất cả', 'sent');
+      render();
+    });
+
+    $('stopAllBtn').addEventListener('click', async () => {
+      await api('POST', '/api/simulation/stop_all');
+      log('Đã dừng tất cả', 'warn');
+      render();
+    });
+
+    $('clearLogBtn').addEventListener('click', () => { logContainer.innerHTML = ''; });
+
+    async function checkMQTT() {
+      try {
+        const status = await api('GET', '/api/mqtt/status');
+        const badge = $('mqttBadge');
+        if (status.connected) {
+          badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-400';
+          badge.textContent = `MQTT: ${status.broker}:1883`;
+        } else {
+          badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-red-900/50 text-red-400';
+          badge.textContent = 'MQTT: disconnected';
+        }
+      } catch {}
+    }
+
+    // ─── Init ──────────────────────────────────────────
+    render();
+    checkMQTT();
+    setInterval(checkMQTT, 5000);
+    log('Sẵn sàng. Tạo trạm và thêm cảm biến.', 'info');
+  </script>
+</body>
+</html>
