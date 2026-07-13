@@ -59,13 +59,15 @@ def send_sensor_data(station, sensor):
         return False
     device_id = station.get("device_id", station["id"])
     token = station.get("token", DEVICE_TOKEN)
+    metrics_data = generate_metrics(sensor.get("metrics", []))
+    metrics_data["battery_voltage"] = round(random.uniform(3.1, 4.2), 2)
     payload = {
         "observation_id": str(uuid.uuid4()),
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "station_id": station["id"],
+        "station_id": device_id,
         "station_name": station["name"],
         "sensor_type": sensor.get("type", sensor["name"]),
-        "metrics": generate_metrics(sensor.get("metrics", [])),
+        "metrics": metrics_data,
         "raw_payload": {
             "device_id": device_id,
             "token": token,

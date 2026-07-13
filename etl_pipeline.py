@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import argparse
@@ -46,15 +47,61 @@ class ParseAndTransformFn(beam.DoFn):
                 })
                 return
 
-        # 3. Chuẩn hóa dữ liệu thành công
+        # 3. Chuẩn hóa dữ liệu & Kiểm định chất lượng (Data Quality Rules Engine)
         try:
+            metrics = payload.get("metrics", {})
+            quality_flag = "VALID"
+
+            # Rule 1: pH value must be between 0 and 14
+            ph_val = metrics.get("ph") if "ph" in metrics else metrics.get("pH")
+            if ph_val is not None:
+                try:
+                    ph_float = float(ph_val)
+                    if not (0.0 <= ph_float <= 14.0):
+                        quality_flag = "INVALID"
+                except ValueError:
+                    quality_flag = "INVALID"
+
+            # Rule 2: Water temperature cannot be negative or abnormally high (>60°C)
+            temp_val = metrics.get("temperature_c") if "temperature_c" in metrics else metrics.get("temperature")
+            if temp_val is not None:
+                try:
+                    temp_float = float(temp_val)
+                    if temp_float < 0.0:
+                        quality_flag = "INVALID"
+                    elif temp_float > 60.0:
+                        quality_flag = "SUSPECT"
+                except ValueError:
+                    quality_flag = "INVALID"
+
+            # Rule 3: Turbidity cannot be negative
+            turb_val = metrics.get("turbidity_ntu") if "turbidity_ntu" in metrics else metrics.get("turbidity")
+            if turb_val is not None:
+                try:
+                    turb_float = float(turb_val)
+                    if turb_float < 0.0:
+                        quality_flag = "INVALID"
+                except ValueError:
+                    quality_flag = "INVALID"
+
+            # Rule 4: Water level cannot be negative
+            level_val = metrics.get("water_level_m") if "water_level_m" in metrics else metrics.get("water_level")
+            if level_val is not None:
+                try:
+                    lvl_float = float(level_val)
+                    if lvl_float < 0.0:
+                        quality_flag = "INVALID"
+                except ValueError:
+                    quality_flag = "INVALID"
+
             bq_row = {
                 "observation_id": payload["observation_id"],
                 "timestamp": payload["timestamp"],
                 "station_id": payload["station_id"],
                 "sensor_type": payload["sensor_type"],
                 "metrics": json.dumps(payload["metrics"]),
-                "raw_payload": json.dumps(payload.get("raw_payload", {}))
+                "raw_payload": json.dumps(payload.get("raw_payload", {})),
+                "quality_flag": quality_flag
             }
             yield bq_row
         except Exception as e:
@@ -79,6 +126,12 @@ def run(argv=None):
         required=True,
         help='Tên bảng BigQuery đích. Định dạng: <PROJECT_ID>:<DATASET>.<TABLE>'
     )
+    parser.add_argument(
+        '--gcs_output_path',
+        required=False,
+        default='gs://dataflow-staging-asia-northeast1-952300570255/raw-telemetry/archive',
+        help='Đường dẫn thư mục lưu trữ raw JSON trên GCS'
+    )
     
     known_args, pipeline_args = parser.parse_known_args(argv)
     
@@ -90,6 +143,12 @@ def run(argv=None):
     pipeline_options = PipelineOptions(pipeline_args)
     pipeline_options.view_as(SetupOptions).save_main_session = True
     pipeline_options.view_as(beam.options.pipeline_options.StandardOptions).streaming = True
+
+    # Set project environment variable to support local DirectRunner
+    from apache_beam.options.pipeline_options import GoogleCloudOptions
+    gcp_opts = pipeline_options.view_as(GoogleCloudOptions)
+    if gcp_opts.project:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = gcp_opts.project
 
     logger.info("Starting Dataflow Streaming Pipeline with DLQ...")
     
@@ -111,7 +170,7 @@ def run(argv=None):
             results.valid_data
             | "Write to BigQuery" >> beam.io.WriteToBigQuery(
                 table=known_args.output_table,
-                schema="observation_id:STRING,timestamp:TIMESTAMP,station_id:STRING,sensor_type:STRING,metrics:JSON,raw_payload:JSON",
+                schema="observation_id:STRING,timestamp:TIMESTAMP,station_id:STRING,sensor_type:STRING,metrics:JSON,raw_payload:JSON,quality_flag:STRING",
                 write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
                 create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
             )
@@ -127,6 +186,19 @@ def run(argv=None):
                 create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
             )
         )
+        
+        # Luồng ghi lưu trữ dữ liệu thô (raw JSON) lên Google Cloud Storage (GCS)
+        if known_args.gcs_output_path:
+            (
+                pubsub_data
+                | "Decode for GCS" >> beam.Map(lambda x: x.decode('utf-8'))
+                | "Window for GCS" >> beam.WindowInto(beam.window.FixedWindows(60))
+                | "Write to GCS" >> beam.io.WriteToText(
+                    file_path_prefix=known_args.gcs_output_path,
+                    file_name_suffix=".json",
+                    num_shards=1
+                )
+            )
 
 if __name__ == '__main__':
     run()

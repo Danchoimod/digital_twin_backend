@@ -94,3 +94,24 @@ async def verify_device(
         raise HTTPException(status_code=401, detail="Invalid Device ID or Token")
     return {"status": "verified"}
 
+
+@router.put("/{id}/metadata", response_model=DeviceResponse)
+async def update_device_metadata(
+    id: str,
+    metadata: dict,
+    db=Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    device = await DeviceService.get_device_by_id(db, id)
+    if not device:
+        raise DeviceNotFoundException(id)
+    
+    if device.get("creator_id") != current_user["id"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Not authorized to edit this device")
+
+    updated_device = await DeviceService.update_device_metadata(db, id, metadata)
+    if not updated_device:
+        raise DeviceNotFoundException(id)
+    return updated_device
+

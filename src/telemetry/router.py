@@ -1,13 +1,27 @@
 import json
 import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from google.cloud import bigquery
 
 from src.auth.dependencies import get_current_user
 from src.gcp.client import gcp_client
+from src.database import get_db
+from src.devices.service import DeviceService
+from src.gcp.utils import publish_pubsub_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
+
+
+class TelemetryIngestPayload(BaseModel):
+    device_id: str = Field(..., description="Unique string identifier for the device")
+    token: str = Field(..., description="Device authentication token")
+    sensor_type: str = Field("custom", description="Type of sensor / payload")
+    metrics: Dict[str, Any] = Field(..., description="Key-value telemetry metrics")
 
 @router.get("/historical")
 async def get_historical_telemetry(
@@ -74,4 +88,43 @@ async def get_historical_telemetry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch historical telemetry: {str(e)}"
+        )
+
+
+@router.post("/ingest", status_code=status.HTTP_201_CREATED)
+async def ingest_telemetry(
+    payload: TelemetryIngestPayload,
+    db=Depends(get_db)
+):
+    """
+    Directly ingest telemetry from an external device.
+    Verifies device credentials and publishes to GCP Pub/Sub.
+    """
+    is_valid = await DeviceService.verify_device(db, payload.device_id, payload.token)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Device ID or token"
+        )
+
+    message = {
+        "observation_id": str(uuid.uuid4()),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "station_id": payload.device_id,
+        "sensor_type": payload.sensor_type,
+        "metrics": payload.metrics
+    }
+
+    try:
+        msg_id = publish_pubsub_message(payload=message)
+        return {
+            "status": "ingested",
+            "message_id": msg_id,
+            "observation_id": message["observation_id"]
+        }
+    except Exception as e:
+        logger.error(f"Ingestion failed during Pub/Sub publish: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Pub/Sub publishing failed: {str(e)}"
         )

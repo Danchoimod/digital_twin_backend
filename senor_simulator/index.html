@@ -203,6 +203,10 @@
           <div class="mb-2">
             <div class="text-xs text-gray-500 mb-1">Chỉ số (metrics):</div>
             <div id="metrics_${se.id}" class="space-y-1">
+              <div class="flex items-center justify-between bg-emerald-950/30 border border-emerald-900/50 rounded px-2 py-1 text-xs text-emerald-400">
+                <span>battery_voltage (Tự động)</span>
+                <span>3.1V → 4.2V</span>
+              </div>
               ${(se.metrics || []).map(m => `
                 <div class="flex items-center justify-between bg-gray-800/50 rounded px-2 py-1 text-xs">
                   <span class="text-gray-300">${m.name}</span>

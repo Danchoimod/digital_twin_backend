@@ -55,6 +55,7 @@ class DeviceService:
             "name": device_in.name,
             "type": device_in.type,
             "location": device_in.location,
+            "metrics_metadata": device_in.metrics_metadata or {},
             "token": token,
             "status": "active",
             "creator_id": creator_id,
@@ -92,4 +93,17 @@ class DeviceService:
         if not device:
             return False
         return device.get("token") == token
+
+    @staticmethod
+    async def update_device_metadata(db, id: str, metadata: dict):
+        try:
+            oid = ObjectId(id)
+        except InvalidId:
+            return None
+        now = datetime.now(timezone.utc)
+        await db["devices"].update_one(
+            {"_id": oid},
+            {"$set": {"metrics_metadata": metadata, "updated_at": now}}
+        )
+        return await DeviceService.get_device_by_id(db, id)
 

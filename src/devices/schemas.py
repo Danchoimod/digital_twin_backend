@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 
@@ -7,6 +7,7 @@ class DeviceBase(BaseModel):
     name: str = Field(..., max_length=100, description="Friendly name of the device")
     type: str = Field("sensor", max_length=50, description="Device type, e.g., sensor, actuator")
     location: Optional[str] = Field(None, max_length=100, description="Deployment location")
+    metrics_metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata for dynamic metrics mapping")
 
 
 class DeviceCreate(DeviceBase):

@@ -67,7 +67,8 @@ def main():
                 "sensor_type": "water_quality",
                 "metrics": {
                     "temperature_c": round(random.uniform(20.0, 35.0), 2),
-                    "pH": round(random.uniform(6.5, 8.5), 2)
+                    "pH": round(random.uniform(6.5, 8.5), 2),
+                    "battery_voltage": round(random.uniform(3.1, 4.2), 2)
                 },
                 "raw_payload": {
                     "device_id": DEVICE_ID,
